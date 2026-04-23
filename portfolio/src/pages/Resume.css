@@ -1,0 +1,72 @@
+.resume {
+  display: flex;
+  height: 100vh;
+  font-family: "Poppins", sans-serif;
+}
+
+/* LEFT PANEL */
+.left {
+  width: 35%;
+  background: #f1f1f1;
+  padding: 30px;
+}
+
+.profile {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: black;
+  margin: auto;
+}
+
+.left h2 {
+  margin-top: 20px;
+  border-bottom: 2px solid black;
+  padding-bottom: 5px;
+}
+
+.languages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* RIGHT PANEL */
+.right {
+  width: 65%;
+  padding: 40px;
+}
+
+.right h1 {
+  letter-spacing: 5px;
+}
+
+.role {
+  color: gray;
+  margin-bottom: 20px;
+}
+
+.contact {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.right h2 {
+  margin-top: 20px;
+  border-bottom: 2px solid black;
+  padding-bottom: 5px;
+}
+
+.item {
+  margin: 10px 0;
+}
+
+.education {
+  margin-top: 10px;
+}

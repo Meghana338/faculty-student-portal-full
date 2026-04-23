@@ -1,0 +1,42 @@
+body {
+  margin: 0;
+  font-family: "Poppins", sans-serif;
+  background: linear-gradient(to right, #eef2f3, #ffffff);
+}
+
+.nav {
+  display: flex;
+  justify-content: space-between;
+  background: #1e293b;
+  color: white;
+  padding: 15px 30px;
+}
+
+.link {
+  color: #e2e8f0;
+  margin-left: 20px;
+  text-decoration: none;
+}
+
+.link:hover {
+  color: #38bdf8;
+}
+
+.container {
+  text-align: center;
+  padding: 30px;
+}
+
+.profile {
+  width: 150px;
+  border-radius: 50%;
+  border: 3px solid #38bdf8;
+}
+
+.project {
+  background: white;
+  margin: 20px auto;
+  padding: 20px;
+  width: 300px;
+  border-radius: 12px;
+}
