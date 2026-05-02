@@ -58,6 +58,8 @@ Set values in `.env`:
 PORT=5001
 MONGODB_URI=mongodb+srv://<user>:<url-encoded-password>@<cluster-host>/<db>?retryWrites=true&w=majority
 JWT_SECRET=<long-random-secret>
+OPENAI_API_KEY=<optional-openai-key>
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 ### Frontend
@@ -156,6 +158,16 @@ Base URL: `http://localhost:5001/api`
 ### Comments
 
 - `POST /posts/:postId/comments` (protected)
+
+### AI
+
+- `POST /ai/project-assist`
+- `POST /ai/pitch-coach`
+- `POST /ai/discussion-assist`
+- `POST /ai/evaluation-draft`
+- `POST /ai/profile-extract`
+- `POST /ai/verification-score`
+- `GET /ai/archive-insights`
 
 ## 9) Common issues and fixes
 

@@ -15,6 +15,7 @@ The original update feed routes still exist, but the app now centers around unif
 
 Detailed project guide:
 - [Working And Running Guide](./docs/WORKING_AND_RUNNING.md)
+- [Deployment Guide](./DEPLOYMENT.md)
 
 ## Project structure
 
@@ -32,6 +33,8 @@ Update `.env`:
 - `MONGODB_URI`: your MongoDB Atlas connection string
 - `JWT_SECRET`: any long random secret
 - `PORT`: optional (default `5001`)
+- `OPENAI_API_KEY`: optional, enables real AI responses
+- `OPENAI_MODEL`: optional (default `gpt-4o-mini`)
 
 Install and run:
 
@@ -75,6 +78,16 @@ App URL (default): `http://localhost:5173`
 - `POST /api/projects/:projectId/archive`
 - `GET /api/evaluations/me`
 - `POST /api/evaluations`
+
+## AI API surface
+
+- `POST /api/ai/project-assist`
+- `POST /api/ai/pitch-coach`
+- `POST /api/ai/discussion-assist`
+- `POST /api/ai/evaluation-draft`
+- `POST /api/ai/profile-extract`
+- `POST /api/ai/verification-score`
+- `GET /api/ai/archive-insights`
 
 ## Important security note
 

@@ -4,17 +4,17 @@
   font-family: 'Source Sans 3', sans-serif;
   line-height: 1.45;
   font-weight: 400;
-  color: #f7f4ff;
+  color: #3d3229;
   background:
-    radial-gradient(circle at 15% 20%, rgba(108, 61, 255, 0.22), transparent 30%),
-    radial-gradient(circle at 85% 10%, rgba(28, 198, 255, 0.16), transparent 26%),
-    radial-gradient(circle at 50% 100%, rgba(255, 109, 57, 0.12), transparent 28%),
-    linear-gradient(180deg, #090b12 0%, #0b1020 48%, #07090f 100%);
+    radial-gradient(circle at 15% 20%, rgba(200, 160, 120, 0.08), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(180, 140, 100, 0.06), transparent 26%),
+    radial-gradient(circle at 50% 100%, rgba(210, 170, 130, 0.06), transparent 28%),
+    linear-gradient(180deg, #faf8f5 0%, #f5f1ed 48%, #faf8f5 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
@@ -26,8 +26,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top, rgba(120, 84, 255, 0.12), transparent 28%),
-    linear-gradient(180deg, #090b12 0%, #0b1020 48%, #07090f 100%);
+    radial-gradient(circle at top, rgba(180, 140, 100, 0.08), transparent 28%),
+    linear-gradient(180deg, #faf8f5 0%, #f5f1ed 48%, #faf8f5 100%);
 }
 
 h1,
@@ -35,5 +35,5 @@ h2,
 h3,
 h4 {
   font-family: 'Space Grotesk', sans-serif;
-  color: #f7f4ff;
+  color: #3d3229;
 }

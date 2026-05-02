@@ -14,6 +14,9 @@ const initialProjectForm = {
   title: '',
   summary: '',
   description: '',
+  postKind: 'project',
+  companyName: '',
+  universityName: '',
   requiredSkills: '',
   tags: '',
   yearAudience: '',
@@ -108,14 +111,47 @@ function App() {
   const [applicationDrafts, setApplicationDrafts] = useState({});
   const [discussionDrafts, setDiscussionDrafts] = useState({});
   const [discussionKinds, setDiscussionKinds] = useState({});
+  const [pitchCoach, setPitchCoach] = useState({});
+  const [discussionCoach, setDiscussionCoach] = useState({});
+  const [evaluationDrafts, setEvaluationDrafts] = useState({});
+  const [verificationInsight, setVerificationInsight] = useState(null);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectKindFilter, setProjectKindFilter] = useState('all');
+  const [peopleSearch, setPeopleSearch] = useState('');
+  const [progressDrafts, setProgressDrafts] = useState({});
+  const [networkUsers, setNetworkUsers] = useState([]);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [activeChatUserId, setActiveChatUserId] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [resumeScanText, setResumeScanText] = useState('');
+  const [resumeKeywords, setResumeKeywords] = useState('');
+  const [resumeScanResult, setResumeScanResult] = useState(null);
+  const [atsProjectId, setAtsProjectId] = useState('');
+  const [atsResult, setAtsResult] = useState(null);
+  const [skillGapProjectId, setSkillGapProjectId] = useState('');
+  const [skillGapResult, setSkillGapResult] = useState(null);
+  const [facultyAiProjectId, setFacultyAiProjectId] = useState('');
+  const [facultyEvaluationDraft, setFacultyEvaluationDraft] = useState(null);
+  const [archiveInsights, setArchiveInsights] = useState([]);
+  const [communityPosts, setCommunityPosts] = useState([]);
+  const [communityTitle, setCommunityTitle] = useState('');
+  const [communityBody, setCommunityBody] = useState('');
+  const [communityCommentDrafts, setCommunityCommentDrafts] = useState({});
   const [activeTab, setActiveTab] = useState('discover');
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [message, setMessage] = useState('');
   const projectAttachmentInputRef = useRef(null);
   const resumeInputRef = useRef(null);
 
   const isFaculty = user?.role === 'faculty';
+  const isAlumni = user?.role === 'alumni';
   const isStudentLike = user?.role === 'student' || user?.role === 'alumni';
+  const canApplyToProjects = user?.role === 'student';
+  const canUseCommunity = user?.role === 'student' || user?.role === 'alumni';
+  const profileTabLabel = isFaculty ? 'Faculty profile' : isAlumni ? 'Alumni profile' : 'Student profile';
+  const profileHeroLabel = isFaculty ? 'Faculty profile' : isAlumni ? 'Alumni profile' : 'Student profile';
 
   const activeProjects = useMemo(
     () => projects.filter((project) => project.status !== 'archived'),
@@ -125,6 +161,40 @@ function App() {
     () => projects.filter((project) => project.status === 'archived'),
     [projects]
   );
+  const filteredActiveProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    return activeProjects.filter((project) => {
+      if (projectKindFilter !== 'all') {
+        if (projectKindFilter === 'alumni') {
+          if (project.professor?.role !== 'alumni') return false;
+        } else if ((project.postKind || 'project') !== projectKindFilter) {
+          return false;
+        }
+      }
+      const blob = [
+        project.title,
+        project.summary,
+        project.description,
+        project.companyName,
+        project.universityName,
+        project.postKind,
+        ...(project.requiredSkills || []),
+        ...(project.tags || []),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return !query || blob.includes(query);
+    });
+  }, [activeProjects, projectSearch, projectKindFilter]);
+
+  const filteredNetworkUsers = useMemo(() => {
+    const query = peopleSearch.trim().toLowerCase();
+    if (!query) return networkUsers;
+    return networkUsers.filter((person) => {
+      const blob = [person.name, person.role, person.status].join(' ').toLowerCase();
+      return blob.includes(query);
+    });
+  }, [networkUsers, peopleSearch]);
 
   const apiRequest = useCallback(async (path, options = {}, authToken = token) => {
     const isFormData = options.body instanceof FormData;
@@ -146,11 +216,30 @@ function App() {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem('portal_token');
+        setToken('');
+        setUser(null);
+        setProfile(null);
+        throw new Error('Session expired. Please log in again.');
+      }
+      if (response.status === 403) {
+        throw new Error(data.message || 'You do not have permission for this action.');
+      }
       throw new Error(data.message || 'Request failed');
     }
 
     return data;
   }, [token]);
+
+  const callAi = useCallback(
+    async (path, payload = {}) =>
+      apiRequest(`/ai/${path}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    [apiRequest]
+  );
 
   const hydrateProfileForm = (incomingProfile) => {
     setProfileForm({
@@ -173,11 +262,10 @@ function App() {
   const loadDashboard = useCallback(async (activeToken = token) => {
     if (!activeToken) return;
 
-    const [meData, facultyData, projectData, evaluationData] = await Promise.all([
+    const [meData, facultyData, projectData] = await Promise.all([
       apiRequest('/profiles/me', { method: 'GET' }, activeToken),
       apiRequest('/profiles/faculty', { method: 'GET' }, activeToken),
       apiRequest('/projects', { method: 'GET' }, activeToken),
-      apiRequest('/evaluations/me', { method: 'GET' }, activeToken),
     ]);
 
     setProfile(meData.profile);
@@ -185,8 +273,24 @@ function App() {
     setRecommendations(meData.recommendations || []);
     setFacultyProfiles(facultyData || []);
     setProjects(projectData || []);
+  }, [apiRequest, token]);
+
+  const loadEvaluations = useCallback(async (activeToken = token) => {
+    if (!activeToken) return;
+    const evaluationData = await apiRequest('/evaluations/me', { method: 'GET' }, activeToken);
     setEvaluations(evaluationData || []);
   }, [apiRequest, token]);
+
+  const loadNetwork = useCallback(async () => {
+    const data = await apiRequest('/profiles/network', { method: 'GET' });
+    setNetworkUsers(data.users || []);
+    setIncomingRequests(data.incomingRequests || []);
+  }, [apiRequest]);
+
+  const loadCommunity = useCallback(async () => {
+    const data = await apiRequest('/community', { method: 'GET' });
+    setCommunityPosts(Array.isArray(data) ? data : []);
+  }, [apiRequest]);
 
   useEffect(() => {
     if (!token) return;
@@ -208,6 +312,21 @@ function App() {
     bootstrap();
   }, [apiRequest, loadDashboard, token]);
 
+  useEffect(() => {
+    if (!token || activeTab !== 'network') return;
+    loadNetwork().catch((error) => setMessage(error.message));
+  }, [activeTab, loadNetwork, token]);
+
+  useEffect(() => {
+    if (!token || activeTab !== 'community' || !canUseCommunity) return;
+    loadCommunity().catch((error) => setMessage(error.message));
+  }, [activeTab, canUseCommunity, loadCommunity, token]);
+
+  useEffect(() => {
+    if (!token || activeTab !== 'evaluations') return;
+    loadEvaluations().catch((error) => setMessage(error.message));
+  }, [activeTab, loadEvaluations, token]);
+
   const handleLogout = () => {
     localStorage.removeItem('portal_token');
     setToken('');
@@ -217,6 +336,9 @@ function App() {
     setEvaluations([]);
     setFacultyProfiles([]);
     setRecommendations([]);
+    setNetworkUsers([]);
+    setIncomingRequests([]);
+    setCommunityPosts([]);
     setMessage('Logged out');
   };
 
@@ -250,6 +372,14 @@ function App() {
 
   const handleCreateProject = async (event) => {
     event.preventDefault();
+    if (!isFaculty && !isAlumni) {
+      setMessage('Only faculty or alumni accounts can post.');
+      return;
+    }
+    if (isAlumni && !['job', 'masters_project'].includes(projectForm.postKind)) {
+      setMessage('Alumni can post only company jobs or masters projects.');
+      return;
+    }
     setLoading(true);
     setMessage('');
 
@@ -359,6 +489,61 @@ function App() {
     }
   };
 
+  const handleFollowRequest = async (targetId) => {
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiRequest(`/profiles/follow/${targetId}/request`, { method: 'POST' });
+      await loadNetwork();
+      setMessage('Follow request sent');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFollowRespond = async (requesterId, decision) => {
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiRequest(`/profiles/follow/${requesterId}/respond`, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      await loadNetwork();
+      setMessage(`Request ${decision}ed`);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadChat = async (targetId) => {
+    try {
+      const data = await apiRequest(`/chat/${targetId}`, { method: 'GET' });
+      setActiveChatUserId(targetId);
+      setChatMessages(data.messages || []);
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const sendChatMessage = async () => {
+    if (!activeChatUserId || !chatDraft.trim()) return;
+    try {
+      const data = await apiRequest(`/chat/${activeChatUserId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ text: chatDraft }),
+      });
+      setChatMessages(data.messages || []);
+      setChatDraft('');
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
   const handleApply = async (projectId) => {
     const pitch = (applicationDrafts[projectId] || '').trim();
     if (!pitch) {
@@ -381,6 +566,27 @@ function App() {
       setMessage(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePitchCoach = async (projectId) => {
+    const pitch = (applicationDrafts[projectId] || '').trim();
+    if (!pitch) {
+      setMessage('Write a pitch first to get AI coaching');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('pitch-coach', { pitch });
+      setPitchCoach((prev) => ({ ...prev, [projectId]: data }));
+      if (data?.improvedPitch) {
+        setApplicationDrafts((prev) => ({ ...prev, [projectId]: data.improvedPitch }));
+      }
+      setMessage('Pitch coaching ready');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -412,6 +618,27 @@ function App() {
     }
   };
 
+  const handleDiscussionAssist = async (projectId) => {
+    const draft = (discussionDrafts[projectId] || '').trim();
+    if (!draft) {
+      setMessage('Write a discussion message first');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('discussion-assist', { message: draft, context: projectId });
+      setDiscussionCoach((prev) => ({ ...prev, [projectId]: data }));
+      if (data?.suggestedReply) {
+        setDiscussionDrafts((prev) => ({ ...prev, [projectId]: data.suggestedReply }));
+      }
+      setMessage('Discussion assistant ready');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleReviewApplication = async (projectId, applicationId, decision) => {
     setLoading(true);
     setMessage('');
@@ -440,6 +667,85 @@ function App() {
       });
       await loadDashboard();
       setMessage('Project archived');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProgressUpdate = async (projectId) => {
+    const updateText = (progressDrafts[projectId] || '').trim();
+    if (!updateText) {
+      setMessage('Write today\'s progress update first');
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiRequest(`/projects/${projectId}/progress`, {
+        method: 'POST',
+        body: JSON.stringify({ updateText }),
+      });
+      setProgressDrafts((prev) => ({ ...prev, [projectId]: '' }));
+      await loadDashboard();
+      setMessage('Daily progress update posted');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateCommunityPost = async () => {
+    if (!canUseCommunity) {
+      setMessage('Only students and alumni can post in community.');
+      return;
+    }
+    const title = communityTitle.trim();
+    const body = communityBody.trim();
+    if (!title || !body) {
+      setMessage('Add both title and content for community post.');
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiRequest('/community', {
+        method: 'POST',
+        body: JSON.stringify({ title, body }),
+      });
+      setCommunityTitle('');
+      setCommunityBody('');
+      await loadCommunity();
+      setMessage('Community post published');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCommunityComment = async (postId) => {
+    if (!canUseCommunity) {
+      setMessage('Only students and alumni can comment in community.');
+      return;
+    }
+    const text = (communityCommentDrafts[postId] || '').trim();
+    if (!text) {
+      setMessage('Write a comment first');
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiRequest(`/community/${postId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+      setCommunityCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+      await loadCommunity();
+      setMessage('Comment posted');
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -485,22 +791,214 @@ function App() {
     }
   };
 
+  const handleEvaluationDraft = async (project) => {
+    const form = evaluationForms[project._id] || initialEvaluationForm;
+    if (!form.studentId) {
+      setMessage('Choose a contributor first');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('evaluation-draft', {
+        projectTitle: project.title,
+        metrics: {
+          workQuality: form.workQuality,
+          efficiency: form.efficiency,
+          regularity: form.regularity,
+          contribution: form.contribution,
+        },
+      });
+      setEvaluationDrafts((prev) => ({ ...prev, [project._id]: data }));
+      setEvaluationForms((prev) => ({
+        ...prev,
+        [project._id]: {
+          ...form,
+          detailedFeedback: data.detailedFeedback || form.detailedFeedback,
+          futureProspects: data.futureProspects || form.futureProspects,
+        },
+      }));
+      setMessage('Evaluation draft generated');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleProjectAssist = async () => {
+    if (!projectForm.title && !projectForm.description) {
+      setMessage('Add title or description first');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('project-assist', {
+        title: projectForm.title,
+        summary: projectForm.summary,
+        description: projectForm.description,
+      });
+      setProjectForm((prev) => ({
+        ...prev,
+        requiredSkills: (data.requiredSkills || []).join(', ') || prev.requiredSkills,
+        tags: (data.tags || []).join(', ') || prev.tags,
+      }));
+      setMessage(`AI suggestion: ${data.basket || 'General'} / ${data.projectType || 'Research'}`);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleProfileExtract = async () => {
+    const raw = profileForm.achievements || profileForm.bio || '';
+    if (!raw.trim()) {
+      setMessage('Add profile text first (bio or achievements)');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('profile-extract', { resumeText: raw });
+      setProfileForm((prev) => ({
+        ...prev,
+        headline: data.headline || prev.headline,
+        skills: (data.skills || []).join(', ') || prev.skills,
+        interests: (data.interests || []).join(', ') || prev.interests,
+        achievements: (data.achievements || []).join('\n') || prev.achievements,
+        courseBackgroundText:
+          (data.courseBackground || [])
+            .map((item) => `${item.course || ''} | ${item.grade || ''}`)
+            .join('\n') || prev.courseBackgroundText,
+      }));
+      setMessage('Profile fields boosted with AI extraction');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleVerificationScore = async () => {
+    setAiLoading(true);
+    try {
+      const githubSkills = parseDelimitedList(profileForm.skills);
+      const data = await callAi('verification-score', { githubSkills });
+      setVerificationInsight(data);
+      setMessage('Verification score updated');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleResumeKeywordScan = async () => {
+    setAiLoading(true);
+    try {
+      const data = await callAi('resume-keyword-scan', {
+        resumeText: resumeScanText,
+        keywords: parseDelimitedList(resumeKeywords),
+      });
+      setResumeScanResult(data);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAtsScore = async () => {
+    if (!atsProjectId) {
+      setMessage('Select a project for ATS score');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('ats-score', { projectId: atsProjectId, resumeText: resumeScanText });
+      setAtsResult(data);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleSkillGap = async () => {
+    if (!skillGapProjectId) {
+      setMessage('Select a project for skill-gap analysis');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('skill-gap', { projectId: skillGapProjectId });
+      setSkillGapResult(data);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleFacultyEvaluationDraft = async () => {
+    if (!facultyAiProjectId) {
+      setMessage('Select a project first');
+      return;
+    }
+    const selected = activeProjects.find((project) => project._id === facultyAiProjectId);
+    if (!selected) {
+      setMessage('Project not found');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const data = await callAi('evaluation-draft', {
+        projectTitle: selected.title,
+        projectSummary: selected.summary,
+        requiredSkills: selected.requiredSkills || [],
+      });
+      setFacultyEvaluationDraft(data);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleArchiveInsightsRefresh = async () => {
+    setAiLoading(true);
+    try {
+      const data = await apiRequest('/ai/archive-insights', { method: 'GET' });
+      setArchiveInsights(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+
   const renderProjectCard = (project, archived = false) => {
     const isFollowingProfessor = profile?.followedProfessors?.some((item) => item._id === project.professor?._id);
     const availableContributors = project.contributors || [];
     const evaluationForm = evaluationForms[project._id] || initialEvaluationForm;
+    const postKindLabel =
+      project.postKind === 'job' ? 'Job post' : project.postKind === 'masters_project' ? 'Masters project' : 'Project';
+    const isImageAttachment = String(project.attachmentUrl || '').startsWith('data:image/');
 
     return (
       <article key={project._id} className="project-card">
         <div className="card-topline">
+          <span className="badge badge-highlight">{postKindLabel}</span>
           <span className="badge badge-warm">{project.basket}</span>
           <span className="badge">{project.projectType}</span>
           {project.recommendationScore > 0 ? <span className="badge badge-highlight">Recommended for you</span> : null}
         </div>
         <h3>{project.title}</h3>
         <p className="muted">
-          By {project.professor?.name} · {project.professor?.department || 'Faculty mentor'}
+          By {project.professor?.name} ({project.professor?.role || 'member'}) · {project.professor?.department || 'Campus'}
           {isFollowingProfessor ? ' · Followed' : ''}
+          {project.companyName ? ` · ${project.companyName}` : ''}
+          {project.universityName ? ` · ${project.universityName}` : ''}
         </p>
         <p>{project.summary}</p>
         <p className="flavor">{project.flavorText}</p>
@@ -526,11 +1024,15 @@ function App() {
         </div>
 
         {project.attachmentUrl ? (
-          <p className="link-row">
-            <a href={project.attachmentUrl} target="_blank" rel="noreferrer">
-              Open attached file
-            </a>
-          </p>
+          <section className="soft-panel">
+            <h4>Attachment</h4>
+            {isImageAttachment ? <img src={project.attachmentUrl} alt={`Attachment for ${project.title}`} className="post-image" /> : null}
+            <p className="link-row">
+              <a href={project.attachmentUrl} target="_blank" rel="noreferrer">
+                {isImageAttachment ? 'Open full image' : 'Open attached file'}
+              </a>
+            </p>
+          </section>
         ) : null}
 
         <section className="soft-panel">
@@ -566,10 +1068,45 @@ function App() {
             <button type="button" onClick={() => handleDiscussionSubmit(project._id)} disabled={loading}>
               Post
             </button>
+            <button type="button" onClick={() => handleDiscussionAssist(project._id)} disabled={aiLoading}>
+              AI Improve
+            </button>
           </div>
+          {discussionCoach[project._id]?.dedupHint ? <p className="muted">{discussionCoach[project._id].dedupHint}</p> : null}
         </section>
 
-        {isStudentLike && !archived ? (
+        {project.canViewProgress ? (
+          <section className="soft-panel">
+            <h4>Daily project progress (private)</h4>
+            <div className="discussion-list">
+              {(project.progressUpdates || []).length === 0 ? (
+                <p className="muted">No progress updates yet. Start posting daily updates.</p>
+              ) : null}
+              {(project.progressUpdates || []).map((entry, index) => (
+                <div key={entry._id || `${project._id}-progress-${index}`} className="discussion-item">
+                  <strong>{entry.author?.name || 'Team member'}</strong>
+                  <span className="discussion-kind">{new Date(entry.updateDate || Date.now()).toLocaleDateString()}</span>
+                  <p>{entry.updateText}</p>
+                </div>
+              ))}
+            </div>
+            <div className="composer">
+              <textarea
+                rows={2}
+                placeholder="What happened today on this project?"
+                value={progressDrafts[project._id] || ''}
+                onChange={(event) =>
+                  setProgressDrafts((prev) => ({ ...prev, [project._id]: event.target.value }))
+                }
+              />
+              <button type="button" onClick={() => handleProgressUpdate(project._id)} disabled={loading}>
+                Post daily update
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {canApplyToProjects && !archived ? (
           <section className="soft-panel">
             <h4>Apply with context beyond your profile</h4>
             <textarea
@@ -583,6 +1120,17 @@ function App() {
             <button type="button" className="primary" onClick={() => handleApply(project._id)} disabled={loading}>
               Apply to project
             </button>
+            <button type="button" onClick={() => handlePitchCoach(project._id)} disabled={aiLoading}>
+              AI Pitch Coach
+            </button>
+            {pitchCoach[project._id]?.score ? (
+              <p className="muted">
+                Pitch score: {pitchCoach[project._id].score}/100
+                {(pitchCoach[project._id].suggestions || []).length
+                  ? ` · ${pitchCoach[project._id].suggestions.join(' | ')}`
+                  : ''}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -660,6 +1208,12 @@ function App() {
               <button type="button" className="primary" onClick={() => handleCreateEvaluation(project)} disabled={loading}>
                 Save evaluation
               </button>
+              <button type="button" onClick={() => handleEvaluationDraft(project)} disabled={aiLoading}>
+                AI Draft Feedback
+              </button>
+              {evaluationDrafts[project._id]?.detailedFeedback ? (
+                <p className="muted">AI draft is loaded into the feedback fields.</p>
+              ) : null}
             </div>
 
             {!archived ? (
@@ -799,9 +1353,12 @@ function App() {
       <nav className="tab-bar">
         {[
           ['discover', 'Project discovery'],
-          ['profile', 'Student profile'],
+          ['profile', profileTabLabel],
           ['evaluations', 'Evaluations'],
           ['archive', 'Archive'],
+          ['ai', 'AI tools'],
+          ...(canUseCommunity ? [['community', 'Community']] : []),
+          ['network', 'Network chat'],
         ].map(([value, label]) => (
           <button key={value} type="button" className={activeTab === value ? 'active' : ''} onClick={() => setActiveTab(value)}>
             {label}
@@ -855,10 +1412,84 @@ function App() {
         <section className="content-column">
           {activeTab === 'discover' ? (
             <>
-              {isFaculty ? (
+              {isFaculty || isAlumni ? (
                 <section className="panel">
-                  <h2>Post a project</h2>
+                  <h2>{isFaculty ? 'Post a project' : 'Alumni posting hub'}</h2>
+                  {isAlumni ? (
+                    <p className="muted">Publish company job posts or masters projects from your university.</p>
+                  ) : null}
                   <form className="stack" onSubmit={handleCreateProject}>
+                    <button type="button" onClick={handleProjectAssist} disabled={aiLoading}>
+                      AI Suggest Skills/Tags
+                    </button>
+                    {isAlumni ? (
+                      <div className="two-col">
+                        <label>
+                          Post type
+                          <select
+                            value={projectForm.postKind}
+                            onChange={(event) =>
+                              setProjectForm((prev) => ({ ...prev, postKind: event.target.value }))
+                            }
+                          >
+                            <option value="job">Job post from your company</option>
+                            <option value="masters_project">Masters project from your university</option>
+                          </select>
+                        </label>
+                        {projectForm.postKind === 'job' ? (
+                          <label>
+                            Company name
+                            <input
+                              placeholder="Enter your company"
+                              value={projectForm.companyName}
+                              onChange={(event) =>
+                                setProjectForm((prev) => ({ ...prev, companyName: event.target.value }))
+                              }
+                              required
+                            />
+                          </label>
+                        ) : (
+                          <label>
+                            University name
+                            <input
+                              placeholder="Enter your university"
+                              value={projectForm.universityName}
+                              onChange={(event) =>
+                                setProjectForm((prev) => ({ ...prev, universityName: event.target.value }))
+                              }
+                              required
+                            />
+                          </label>
+                        )}
+                      </div>
+                    ) : null}
+                    {!isAlumni ? (
+                      <div className="two-col">
+                        <label>
+                          Post type
+                          <select
+                            value={projectForm.postKind}
+                            onChange={(event) =>
+                              setProjectForm((prev) => ({ ...prev, postKind: event.target.value }))
+                            }
+                          >
+                            <option value="project">Academic project</option>
+                            <option value="job">Job post from your company</option>
+                          </select>
+                        </label>
+                        <label>
+                          Company name
+                          <input
+                            placeholder="Enter your company"
+                            value={projectForm.companyName}
+                            onChange={(event) =>
+                              setProjectForm((prev) => ({ ...prev, companyName: event.target.value }))
+                            }
+                            required={projectForm.postKind === 'job'}
+                          />
+                        </label>
+                      </div>
+                    ) : null}
                     <label>
                       Title
                       <input
@@ -917,10 +1548,11 @@ function App() {
                         />
                       </label>
                       <label>
-                        Attachment
+                        Photo / attachment
                         <input
                           ref={projectAttachmentInputRef}
                           type="file"
+                          accept="image/*,.pdf,.doc,.docx"
                           onChange={(event) =>
                             setProjectForm((prev) => ({ ...prev, attachment: event.target.files?.[0] || null }))
                           }
@@ -951,7 +1583,7 @@ function App() {
                       Mark future prospects as mandatory on the final page
                     </label>
                     <button type="submit" className="primary" disabled={loading}>
-                      {loading ? 'Posting...' : 'Publish project'}
+                      {loading ? 'Posting...' : isAlumni ? 'Publish alumni post' : 'Publish project'}
                     </button>
                   </form>
                 </section>
@@ -975,11 +1607,25 @@ function App() {
               <section className="panel">
                 <div className="section-head">
                   <h2>Latest projects</h2>
-                  <span>{activeProjects.length} visible to everyone</span>
+                  <span>{filteredActiveProjects.length} visible to everyone</span>
+                </div>
+                <div className="two-col">
+                  <input
+                    placeholder="Search projects by title, skill, tag, company..."
+                    value={projectSearch}
+                    onChange={(event) => setProjectSearch(event.target.value)}
+                  />
+                  <select value={projectKindFilter} onChange={(event) => setProjectKindFilter(event.target.value)}>
+                    <option value="all">All posts</option>
+                    <option value="project">Projects</option>
+                    <option value="job">Job posts</option>
+                    <option value="masters_project">Masters projects</option>
+                    <option value="alumni">Alumni posts</option>
+                  </select>
                 </div>
                 <div className="stack">
-                  {activeProjects.length === 0 ? <p className="muted">No projects posted yet.</p> : null}
-                  {activeProjects.map((project) => renderProjectCard(project))}
+                  {filteredActiveProjects.length === 0 ? <p className="muted">No matching projects found.</p> : null}
+                  {filteredActiveProjects.map((project) => renderProjectCard(project))}
                 </div>
               </section>
             </>
@@ -989,7 +1635,7 @@ function App() {
             <section className="panel profile-panel">
               <div className="profile-hero">
                 <div>
-                  <p className="eyebrow">Colorful student profile</p>
+                  <p className="eyebrow">{profileHeroLabel}</p>
                   <h2>{profile?.name}</h2>
                   <p>{profile?.headline}</p>
                 </div>
@@ -1002,6 +1648,19 @@ function App() {
               </div>
 
               <form className="stack" onSubmit={handleSaveProfile}>
+                <div className="button-row">
+                  <button type="button" onClick={handleProfileExtract} disabled={aiLoading}>
+                    AI Extract Profile Fields
+                  </button>
+                  <button type="button" onClick={handleVerificationScore} disabled={aiLoading}>
+                    AI Verification Score
+                  </button>
+                </div>
+                {verificationInsight ? (
+                  <p className="muted">
+                    Confidence: {verificationInsight.confidence || 0}% · {verificationInsight.notes || ''}
+                  </p>
+                ) : null}
                 <div className="two-col">
                   <label>
                     Headline
@@ -1193,6 +1852,270 @@ function App() {
                 {archivedProjects.length === 0 ? <p className="muted">No archived projects yet.</p> : null}
                 {archivedProjects.map((project) => renderProjectCard(project, true))}
               </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'ai' ? (
+            <section className="panel stack">
+              {isFaculty ? (
+                <>
+                  <h2>AI Faculty Toolkit</h2>
+                  <p className="muted">Faculty AI focuses on selection, evaluation, and archived insights.</p>
+                  <label>
+                    Target project
+                    <select value={facultyAiProjectId} onChange={(event) => setFacultyAiProjectId(event.target.value)}>
+                      <option value="">Select project</option>
+                      {activeProjects.map((project) => (
+                        <option key={project._id} value={project._id}>
+                          {project.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="button-row">
+                    <button type="button" onClick={handleFacultyEvaluationDraft} disabled={aiLoading}>
+                      Draft evaluation narrative
+                    </button>
+                    <button type="button" onClick={handleArchiveInsightsRefresh} disabled={aiLoading}>
+                      Refresh archive insights
+                    </button>
+                  </div>
+                  {facultyEvaluationDraft?.detailedFeedback ? (
+                    <div className="soft-panel">
+                      <h4>Drafted evaluation</h4>
+                      <p>{facultyEvaluationDraft.detailedFeedback}</p>
+                      <p className="muted">{facultyEvaluationDraft.futureProspects || ''}</p>
+                    </div>
+                  ) : null}
+                  {archiveInsights.length > 0 ? (
+                    <div className="soft-panel">
+                      <h4>Archived project insights</h4>
+                      {archiveInsights.map((item) => (
+                        <p key={item._id}>
+                          <strong>{item.title}:</strong> {item.archivedInsights || 'No insights stored yet.'}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <h2>AI Resume + Interview Toolkit</h2>
+                  <label>
+                    Resume/Profile text
+                    <textarea
+                      rows={4}
+                      placeholder="Paste resume text for keyword scan / ATS checks"
+                      value={resumeScanText}
+                      onChange={(event) => setResumeScanText(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Faculty keyword scanner
+                    <input
+                      placeholder="react, node, leadership, testing"
+                      value={resumeKeywords}
+                      onChange={(event) => setResumeKeywords(event.target.value)}
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button type="button" onClick={handleResumeKeywordScan} disabled={aiLoading}>
+                      Scan keywords
+                    </button>
+                    <button type="button" onClick={handleAtsScore} disabled={aiLoading}>
+                      ATS score and chance
+                    </button>
+                    <button type="button" onClick={handleSkillGap} disabled={aiLoading}>
+                      Skill gap detector
+                    </button>
+                  </div>
+                  <div className="two-col">
+                    <label>
+                      ATS target project
+                      <select value={atsProjectId} onChange={(event) => setAtsProjectId(event.target.value)}>
+                        <option value="">Select project</option>
+                        {activeProjects.map((project) => (
+                          <option key={project._id} value={project._id}>
+                            {project.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Skill-gap target project
+                      <select value={skillGapProjectId} onChange={(event) => setSkillGapProjectId(event.target.value)}>
+                        <option value="">Select project</option>
+                        {activeProjects.map((project) => (
+                          <option key={project._id} value={project._id}>
+                            {project.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {resumeScanResult ? (
+                    <p className="muted">
+                      Keyword match: {resumeScanResult.matchPercent || 0}% · Missing: {(resumeScanResult.missing || []).join(', ') || 'None'}
+                    </p>
+                  ) : null}
+                  {atsResult ? (
+                    <p className="muted">
+                      ATS score: {atsResult.atsScore || 0}% · Chance: {atsResult.chanceBand || 'Unknown'} · Missing skills:{' '}
+                      {(atsResult.missingSkills || []).join(', ') || 'None'}
+                    </p>
+                  ) : null}
+                  {skillGapResult ? (
+                    <p className="muted">
+                      Skill gaps: {(skillGapResult.missing || []).join(', ') || 'None'} · Plan:{' '}
+                      {(skillGapResult.learningPlan || []).join(' | ') || 'No gap plan needed'}
+                    </p>
+                  ) : null}
+                </>
+              )}
+
+            </section>
+          ) : null}
+
+          {activeTab === 'community' && canUseCommunity ? (
+            <section className="panel stack">
+              <div className="section-head">
+                <h2>Community (Reddit style)</h2>
+                <button type="button" onClick={loadCommunity} disabled={loading}>
+                  Refresh community
+                </button>
+              </div>
+              <div className="soft-panel stack">
+                <h4>Create a post</h4>
+                <input
+                  placeholder="Post title"
+                  value={communityTitle}
+                  onChange={(event) => setCommunityTitle(event.target.value)}
+                />
+                <textarea
+                  rows={3}
+                  placeholder="Share your question, update, or experience..."
+                  value={communityBody}
+                  onChange={(event) => setCommunityBody(event.target.value)}
+                />
+                <button type="button" className="primary" onClick={handleCreateCommunityPost} disabled={loading}>
+                  Publish post
+                </button>
+              </div>
+              <div className="stack">
+                {communityPosts.length === 0 ? <p className="muted">No community posts yet.</p> : null}
+                {communityPosts.map((post) => (
+                  <article key={post._id} className="project-card">
+                    <div className="card-topline">
+                      <span className="badge">{post.author?.role || 'member'}</span>
+                    </div>
+                    <h3>{post.title}</h3>
+                    <p className="muted">By {post.author?.name || 'Community member'}</p>
+                    <p>{post.body}</p>
+                    <div className="soft-panel">
+                      <h4>Comments</h4>
+                      {(post.comments || []).length === 0 ? <p className="muted">No comments yet.</p> : null}
+                      {(post.comments || []).map((comment, index) => (
+                        <p key={`${post._id}-comment-${index}`}>
+                          <strong>{comment.author?.name || 'Member'}:</strong> {comment.text}
+                        </p>
+                      ))}
+                      <div className="composer">
+                        <textarea
+                          rows={2}
+                          placeholder="Add a comment..."
+                          value={communityCommentDrafts[post._id] || ''}
+                          onChange={(event) =>
+                            setCommunityCommentDrafts((prev) => ({ ...prev, [post._id]: event.target.value }))
+                          }
+                        />
+                        <button type="button" onClick={() => handleCommunityComment(post._id)} disabled={loading}>
+                          Comment
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'network' ? (
+            <section className="panel stack">
+              <div className="section-head">
+                <h2>Follow Requests + Chat</h2>
+                <button type="button" onClick={loadNetwork} disabled={loading}>
+                  Refresh network
+                </button>
+              </div>
+
+              <div className="soft-panel">
+                <h4>Incoming follow requests</h4>
+                {incomingRequests.length === 0 ? <p className="muted">No pending requests.</p> : null}
+                {incomingRequests.map((requester) => (
+                  <div key={requester._id} className="button-row">
+                    <span>
+                      {requester.name} ({requester.role})
+                    </span>
+                    <button type="button" onClick={() => handleFollowRespond(requester._id, 'accept')} disabled={loading}>
+                      Accept
+                    </button>
+                    <button type="button" onClick={() => handleFollowRespond(requester._id, 'reject')} disabled={loading}>
+                      Reject
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="soft-panel">
+                <h4>People</h4>
+                <input
+                  placeholder="Search people by name, role, or status..."
+                  value={peopleSearch}
+                  onChange={(event) => setPeopleSearch(event.target.value)}
+                />
+                {filteredNetworkUsers.map((person) => (
+                  <div key={person._id} className="button-row">
+                    <span>
+                      {person.name} ({person.role}) - {person.status}
+                    </span>
+                    {person.status === 'none' || person.status === 'follows_you' ? (
+                      <button type="button" onClick={() => handleFollowRequest(person._id)} disabled={loading}>
+                        Send follow request
+                      </button>
+                    ) : null}
+                    {person.status === 'connected' ? (
+                      <button type="button" onClick={() => loadChat(person._id)} disabled={loading}>
+                        Open chat
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+
+              {activeChatUserId ? (
+                <div className="soft-panel">
+                  <h4>Chat window</h4>
+                  <div className="discussion-list">
+                    {chatMessages.length === 0 ? <p className="muted">No messages yet.</p> : null}
+                    {chatMessages.map((entry, index) => (
+                      <p key={`${entry._id || 'msg'}-${index}`}>
+                        <strong>{entry.sender?.name || 'You'}:</strong> {entry.text}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="composer">
+                    <textarea
+                      rows={2}
+                      placeholder="Type message..."
+                      value={chatDraft}
+                      onChange={(event) => setChatDraft(event.target.value)}
+                    />
+                    <button type="button" onClick={sendChatMessage} disabled={loading}>
+                      Send
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </section>
           ) : null}
         </section>
